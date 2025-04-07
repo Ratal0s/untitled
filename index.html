@@ -7,7 +7,7 @@
     <style>
         @font-face {
             font-family: 'OCR';
-            src: url('https://fonts.cdnfonts.com/css/ocr-a-extended') format('woff2');
+            src: url('fonts/ocr.woff2') format('woff2');
         }
         
         body {
@@ -27,6 +27,7 @@
         .closed-container {
             position: relative;
             text-align: center;
+            transition: all 0.5s;
         }
         
         .closed-sign {
@@ -53,6 +54,25 @@
         
         .untitled::after {
             content: "]";
+        }
+        
+        .play-button {
+            position: absolute;
+            bottom: -8vw;
+            left: 0;
+            right: 0;
+            font-size: 1.5vw;
+            color: #fff;
+            text-align: center;
+            opacity: 0;
+            cursor: pointer;
+            transition: opacity 1s, transform 0.3s;
+            text-transform: uppercase;
+        }
+        
+        .play-button:hover {
+            color: #0ff;
+            transform: scale(1.1);
         }
         
         .corner {
@@ -105,7 +125,41 @@
             pointer-events: none;
             z-index: 1001;
         }
-        
+
+        #snake-game {
+            display: none;
+            position: fixed;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            border: 1px solid #333;
+            z-index: 1002;
+        }
+
+        #game-overlay {
+            display: none;
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0,0,0,0.9);
+            z-index: 1003;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+        }
+
+        #score-display {
+            position: fixed;
+            top: 20px;
+            right: 20px;
+            color: white;
+            font-size: 24px;
+            z-index: 1004;
+            display: none;
+        }
+
         .audio-control {
             position: fixed;
             bottom: 20px;
@@ -113,7 +167,28 @@
             color: #555;
             font-size: 12px;
             cursor: pointer;
-            z-index: 1002;
+            z-index: 1005;
+        }
+
+        .dialog-text {
+            color: white;
+            font-size: 24px;
+            text-align: center;
+            line-height: 1.6;
+            max-width: 600px;
+            margin: 20px;
+        }
+
+        .dialog-line {
+            overflow: hidden;
+            white-space: nowrap;
+            margin: 10px 0;
+            animation: shake 0.3s infinite alternate;
+        }
+
+        @keyframes shake {
+            0% { transform: translateX(-1px); }
+            100% { transform: translateX(1px); }
         }
     </style>
 </head>
@@ -131,73 +206,352 @@
     <div class="closed-container">
         <div class="closed-sign" id="glitch-text">NOUS SOMMES FERMÉS :)</div>
         <div class="untitled" id="untitled">untitled</div>
+        <div class="play-button" id="play-button">PLAY</div>
     </div>
 
-    <!-- Audio elements -->
-    <audio id="cityAmbience" loop>
-    <source src="city.mp3" type="audio/mpeg">
-</audio>
-<audio id="footsteps" loop>
-    <source src="foot.mp3" type="audio/mpeg">
-</audio>
-    
+    <canvas id="snake-game" width="400" height="400"></canvas>
+    <div id="game-overlay"></div>
+    <div id="score-display">SCORE: 0</div>
+
+    <!-- Fichiers audio locaux -->
+    <audio id="ambient" loop>
+        <source src="audio/ambient.mp3" type="audio/mpeg">
+    </audio>
+    <audio id="eat">
+        <source src="audio/eat.mp3" type="audio/mpeg">
+    </audio>
+    <audio id="gameover">
+        <source src="audio/gameover.mp3" type="audio/mpeg">
+    </audio>
+    <audio id="gameplay" loop>
+        <source src="audio/gameplay.mp3" type="audio/mpeg">
+    </audio>
+    <audio id="typing">
+        <source src="audio/typing.mp3" type="audio/mpeg">
+    </audio>
+
     <script>
-        // Audio system
-        const cityAmbience = document.getElementById('cityAmbience');
-        const footsteps = document.getElementById('footsteps');
-        const audioControl = document.getElementById('audioControl');
+        // Variables globales
+        let playButtonVisible = false;
+        let gameActive = false;
+        let score = 0;
         let audioEnabled = true;
+        let ambientAudio, eatAudio, gameoverAudio, gameplayAudio, typingAudio;
+        let playButtonInterval;
 
-        // Set initial volume
-        cityAmbience.volume = 0.2;
-        footsteps.volume = 0.2;
+        // Initialisation audio
+        function initAudio() {
+            ambientAudio = document.getElementById('ambient');
+            eatAudio = document.getElementById('eat');
+            gameoverAudio = document.getElementById('gameover');
+            gameplayAudio = document.getElementById('gameplay');
+            typingAudio = document.getElementById('typing');
+            
+            // Configurer les volumes
+            ambientAudio.volume = 0.3;
+            eatAudio.volume = 0.7;
+            gameoverAudio.volume = 0.7;
+            gameplayAudio.volume = 0.4;
+            typingAudio.volume = 0.5;
+            
+            // Démarrer l'ambiance sonore
+            startAmbientSounds();
+        }
 
-        // Play audio with delay to avoid autoplay restrictions
-        setTimeout(() => {
-            if(audioEnabled) {
-                cityAmbience.play().catch(e => console.log("Audio autoplay prevented:", e));
-                footsteps.play().catch(e => console.log("Audio autoplay prevented:", e));
+        function startAmbientSounds() {
+            if (audioEnabled) {
+                ambientAudio.play().catch(e => console.log("Audio bloqué:", e));
             }
-        }, 1000);
+        }
 
-        // Toggle audio control
-        audioControl.addEventListener('click', () => {
+        function stopAmbientSounds() {
+            ambientAudio.pause();
+            ambientAudio.currentTime = 0;
+        }
+
+        function startGameSounds() {
+            if (audioEnabled) {
+                gameplayAudio.currentTime = 0;
+                gameplayAudio.play();
+            }
+        }
+
+        function stopGameSounds() {
+            gameplayAudio.pause();
+            gameplayAudio.currentTime = 0;
+        }
+
+        // Contrôle audio
+        document.getElementById('audioControl').addEventListener('click', () => {
             audioEnabled = !audioEnabled;
             
-            if(audioEnabled) {
-                cityAmbience.play();
-                footsteps.play();
-                audioControl.textContent = "SON: ON";
+            if (audioEnabled) {
+                if (gameActive) {
+                    startGameSounds();
+                } else {
+                    startAmbientSounds();
+                }
+                document.getElementById('audioControl').textContent = "SON: ON";
             } else {
-                cityAmbience.pause();
-                footsteps.pause();
-                audioControl.textContent = "SON: OFF";
+                if (gameActive) {
+                    stopGameSounds();
+                } else {
+                    stopAmbientSounds();
+                }
+                document.getElementById('audioControl').textContent = "SON: OFF";
             }
         });
 
-        // Randomize footsteps playback for more natural sound
-        setInterval(() => {
-            if(audioEnabled && Math.random() > 0.7) {
-                footsteps.currentTime = 0;
-                footsteps.play();
-            }
-        }, 8000);
+        // Bouton PLAY après 10s
+        function showPlayButton() {
+            const playButton = document.getElementById('play-button');
+            playButton.style.opacity = '1';
+            playButtonVisible = true;
+            
+            playButtonInterval = setInterval(() => {
+                if (playButtonVisible && !gameActive) {
+                    playButton.style.textShadow = `0 0 5px rgb(${Math.random()*255}, ${Math.random()*255}, ${Math.random()*255})`;
+                    setTimeout(() => {
+                        playButton.style.textShadow = 'none';
+                    }, 100);
+                }
+            }, 3000);
+        }
 
-        // Effet de glitch aléatoire avancé
+        setTimeout(showPlayButton, 10000);
+
+        // Clic sur PLAY
+        document.getElementById('play-button').addEventListener('click', () => {
+            if (!gameActive) {
+                startGame();
+            }
+        });
+
+        // Démarrer le jeu
+        function startGame() {
+            gameActive = true;
+            document.querySelector('.closed-container').style.opacity = '0';
+            document.getElementById('play-button').style.opacity = '0';
+            clearInterval(playButtonInterval);
+            
+            // Gestion audio
+            stopAmbientSounds();
+            startGameSounds();
+            
+            initSnakeGame();
+        }
+
+        // Jeu Snake
+        function initSnakeGame() {
+            const canvas = document.getElementById('snake-game');
+            const ctx = canvas.getContext('2d');
+            const scoreDisplay = document.getElementById('score-display');
+            
+            canvas.style.display = 'block';
+            scoreDisplay.style.display = 'block';
+            score = 0;
+            scoreDisplay.textContent = 'SCORE: 0';
+            
+            const box = 20;
+            let snake = [{x: 9 * box, y: 10 * box}];
+            let food = {
+                x: Math.floor(Math.random() * 20) * box,
+                y: Math.floor(Math.random()*20) * box
+            };
+            let d = null;
+            let game;
+            
+            function draw() {
+                // Fond
+                if (Math.random() > 0.9) {
+                    ctx.fillStyle = `rgb(${Math.random()*50}, ${Math.random()*50}, ${Math.random()*50})`;
+                } else {
+                    ctx.fillStyle = "black";
+                }
+                ctx.fillRect(0, 0, canvas.width, canvas.height);
+                
+                // Serpent
+                for (let i = 0; i < snake.length; i++) {
+                    if (Math.random() > 0.95) {
+                        ctx.fillStyle = `rgb(${Math.random()*255}, ${Math.random()*255}, ${Math.random()*255})`;
+                    } else {
+                        ctx.fillStyle = (i === 0) ? "#0ff" : "#fff";
+                    }
+                    ctx.fillRect(snake[i].x, snake[i].y, box-1, box-1);
+                    
+                    if (Math.random() > 0.8) {
+                        ctx.strokeStyle = `rgb(${Math.random()*255}, 255, 255)`;
+                        ctx.lineWidth = 2;
+                        ctx.strokeRect(snake[i].x, snake[i].y, box-1, box-1);
+                    }
+                }
+                
+                // Nourriture
+                if (Math.random() > 0.9) {
+                    ctx.fillStyle = `rgb(255, ${Math.random()*255}, ${Math.random()*255})`;
+                } else {
+                    ctx.fillStyle = "red";
+                }
+                ctx.beginPath();
+                ctx.arc(food.x + box/2, food.y + box/2, box/2-2, 0, 2*Math.PI);
+                ctx.fill();
+                
+                let snakeX = snake[0].x;
+                let snakeY = snake[0].y;
+                
+                if (d === "LEFT") snakeX -= box;
+                if (d === "UP") snakeY -= box;
+                if (d === "RIGHT") snakeX += box;
+                if (d === "DOWN") snakeY += box;
+                
+                if (snakeX === food.x && snakeY === food.y) {
+                    eatAudio.currentTime = 0;
+                    eatAudio.play();
+                    score++;
+                    scoreDisplay.textContent = `SCORE: ${score}`;
+                    food = {
+                        x: Math.floor(Math.random()*20) * box,
+                        y: Math.floor(Math.random()*20) * box
+                    };
+
+                    if (score >= 10) {
+                        clearInterval(game);
+                        showEndGameDialog();
+                    }
+                } else {
+                    snake.pop();
+                }
+                
+                let newHead = {x: snakeX, y: snakeY};
+                
+                if (snakeX < 0 || snakeY < 0 || 
+                    snakeX >= canvas.width || snakeY >= canvas.height ||
+                    collision(newHead, snake)) {
+                    
+                    gameoverAudio.currentTime = 0;
+                    gameoverAudio.play();
+                    clearInterval(game);
+                    setTimeout(resetGame, 1000);
+                }
+                
+                snake.unshift(newHead);
+            }
+            
+            function collision(head, array) {
+                for (let i = 0; i < array.length; i++) {
+                    if (head.x === array[i].x && head.y === array[i].y) {
+                        return true;
+                    }
+                }
+                return false;
+            }
+            
+            document.addEventListener('keydown', direction);
+            
+            function direction(event) {
+                if (event.keyCode === 37 && d !== "RIGHT") d = "LEFT";
+                else if (event.keyCode === 38 && d !== "DOWN") d = "UP";
+                else if (event.keyCode === 39 && d !== "LEFT") d = "RIGHT";
+                else if (event.keyCode === 40 && d !== "UP") d = "DOWN";
+            }
+            
+            game = setInterval(draw, 100);
+        }
+        
+        function showEndGameDialog() {
+            stopGameSounds();
+            const overlay = document.getElementById('game-overlay');
+            overlay.style.display = 'flex';
+            overlay.innerHTML = `
+                <div style="background: black; padding: 30px; border: 1px solid #333; max-width: 600px; text-align: center;">
+                    <h2 style="color: #0ff; margin-bottom: 20px;">FÉLICITATIONS</h2>
+                    <div id="dialog-content" style="min-height: 200px;"></div>
+                    <button id="close-dialog" style="padding: 10px 20px; background: #000; color: #0ff; border: 1px solid #0ff; cursor: pointer; margin-top: 20px;">
+                        CONTINUER
+                    </button>
+                </div>
+            `;
+            
+            const dialogLines = [
+                "眠れるようになった？",
+                "目を閉じてる。それだけで十分だ。",
+                "まだ平気なふりしてる？",
+                "いや。ただ、何もしないだけ。",
+                "話す気ある？",
+                "大事なことじゃない。",
+                "なんで書くのやめたの？",
+                "言葉が、うまく落ちてこない。"
+            ];
+            
+            const dialogContent = document.getElementById('dialog-content');
+            let currentLine = 0;
+            
+            function typeWriter() {
+                if (currentLine < dialogLines.length) {
+                    const lineDiv = document.createElement('div');
+                    lineDiv.className = 'dialog-line';
+                    dialogContent.appendChild(lineDiv);
+                    
+                    const text = dialogLines[currentLine];
+                    let i = 0;
+                    
+                    // Démarrer le son de dactylographie
+                    typingAudio.currentTime = 0;
+                    typingAudio.play();
+                    
+                    function type() {
+                        if (i < text.length) {
+                            lineDiv.textContent += text.charAt(i);
+                            i++;
+                            setTimeout(type, 50 + Math.random() * 50);
+                        } else {
+                            typingAudio.pause();
+                            currentLine++;
+                            setTimeout(typeWriter, 500);
+                        }
+                    }
+                    
+                    type();
+                }
+            }
+            
+            typeWriter();
+            
+            document.getElementById('close-dialog').addEventListener('click', () => {
+                overlay.style.display = 'none';
+                resetGame();
+            });
+        }
+
+        function resetGame() {
+            document.getElementById('snake-game').style.display = 'none';
+            document.getElementById('score-display').style.display = 'none';
+            document.querySelector('.closed-container').style.opacity = '1';
+            gameActive = false;
+            
+            stopGameSounds();
+            
+            if (audioEnabled) {
+                startAmbientSounds();
+            }
+            
+            // Réafficher le bouton PLAY après 10s
+            setTimeout(showPlayButton, 10000);
+        }
+
+        // Effets de glitch
         function triggerGlitch() {
             const textElement = document.getElementById('glitch-text');
             const untitled = document.getElementById('untitled');
             
-            // Glitch principal
             textElement.style.textShadow = '2px 0 red, -2px 0 cyan';
             textElement.style.transform = 'translateX(5px)';
             
-            // Glitch du titre [untitled]
             const glitchChars = ['_', '/', '\\', '|', '~', '¤'];
             let glitched = '';
             for(let i = 0; i < 8; i++) {
                 if(Math.random() > 0.3) {
-                    glitched += glitchChars[Math.floor(Math.random() * glitchChars.length)];
+                    glitched += glitchChars[Math.floor(Math.random()*glitchChars.length)];
                 } else {
                     glitched += 'untitled'.charAt(i) || '';
                 }
@@ -208,41 +562,21 @@
                 textElement.style.textShadow = 'none';
                 textElement.style.transform = 'none';
                 untitled.textContent = 'untitled';
-            }, 100 + Math.random() * 300);
+            }, 100 + Math.random()*300);
         }
         
         setInterval(triggerGlitch, 3000);
         
-        // Effet curseur personnalisé
+        // Curseur
         document.addEventListener('mousemove', (e) => {
             const cursor = document.querySelector('.cursor');
             cursor.style.left = e.clientX + 'px';
             cursor.style.top = e.clientY + 'px';
-            
-            if(e.target.tagName === 'A' || e.target.style.cursor === 'pointer') {
-                cursor.style.width = '30px';
-                cursor.style.height = '30px';
-                cursor.style.borderRadius = '50%';
-            } else {
-                cursor.style.width = '10px';
-                cursor.style.height = '20px';
-                cursor.style.borderRadius = '0';
-            }
         });
         
-        // Effet de corruption aléatoire
-        setInterval(() => {
-            if(Math.random() > 0.8) {
-                document.body.style.filter = 'contrast(150%) brightness(80%)';
-                setTimeout(() => {
-                    document.body.style.filter = 'none';
-                }, 200);
-            }
-        }, 5000);
-        
-        // Animation d'apparition
+        // Animation texte
         document.addEventListener('DOMContentLoaded', () => {
-            const text = "NOUS SOMMES FERMÉS";
+            const text = "NOUS SOMMES FERMÉS :)";
             const element = document.getElementById('glitch-text');
             element.textContent = "";
             
@@ -255,6 +589,8 @@
                     clearInterval(typing);
                 }
             }, 100);
+            
+            initAudio();
         });
     </script>
 </body>
